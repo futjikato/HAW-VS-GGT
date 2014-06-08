@@ -116,7 +116,7 @@ spawn_ggts(Number, {_TTW, _TTT, 0}) ->
   log(Number, "[END] - Started all GGT processes.~n");
 spawn_ggts(Number, {TTW, TTT, GGTs}) ->
   spawn_single_ggt(Number, GGTs, TTW, TTT),
-  spawn_ggts(Number, {TTT, TTW, GGTs - 1}).
+  spawn_ggts(Number, {TTW, TTT, GGTs - 1}).
 
 %%----------------------------------------------------------------------
 %% Function: spawn_single_ggt/4
