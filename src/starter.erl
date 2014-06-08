@@ -18,6 +18,17 @@
 -include("messages.hrl").
 -include("constants.hrl").
 
+%%----------------------------------------------------------------------
+%% Function: start/1
+%% Purpose: Start the starter module.
+%%          After start the starter will contact the nameserver for the coordinator
+%%          Name and then ask the coordinator for the starter config values.
+%%          After that the starter will start ggt processes in the ggt module ( ggt:start/6 ).
+%%          For more information on the start of the ggt modules see the spawn_single_ggt/4 function.
+%% Args: String, []
+%%   or: String, [String, ...]
+%% Returns: None
+%%----------------------------------------------------------------------
 start(Number) ->
   Nameserver = get_nameserver(),
   Koordinator = get_coordinator(Nameserver),
