@@ -32,25 +32,24 @@
 start(Number) ->
   Nameserver = get_nameserver(),
   Koordinator = get_coordinator(Nameserver),
-  Config = get_ggt_vals(Koordinator),
+  Config = get_ggt_vals(Number, Koordinator),
   spawn_ggts(Number, Config),
-  log("Done").
+  log(Number, "Done~n").
 
 %%----------------------------------------------------------------------
-%% Function: log/1 log/2
+%% Function: log/2 log/3
 %% Purpose: Log the message. If params are given use io_lib:format to format the message with the given params
 %% Args: String, []
 %%   or: String, [String, ...]
 %% Returns: None
 %%----------------------------------------------------------------------
-log(Msg) ->
-  log(Msg, []).
-log(Msg, []) ->
-  Filename = "",
+log(Number, Msg) ->
+  log(Number, Msg, []).
+log(Number, Msg, []) ->
+  Filename = io_lib:format("starter~s_ggt_~p.log", [Number, node()]),
   logging(Filename, Msg);
-log(Msg, Params) ->
-  Filename = "",
-  logging(Filename, io_lib:format(Msg, Params)).
+log(Number, Msg, Params) ->
+  log(Number, io_lib:format(Msg, Params), []).
 
 %%----------------------------------------------------------------------
 %% Function: get_nameserver/0
@@ -90,16 +89,16 @@ get_coordinator(Nameserver) ->
 %% Returns: {TTW, TTT, GGTs}
 %%      or: error
 %%----------------------------------------------------------------------
-get_ggt_vals(error) ->
-  log("Error getting coordinator from nameserver."),
+get_ggt_vals(Number, error) ->
+  log(Number, "Error getting coordinator from nameserver.~n"),
   error;
-get_ggt_vals(Koordinator) ->
+get_ggt_vals(Number, Koordinator) ->
   Koordinator ! {get_ggt_vals, self()},
   receive
     {ggt_vals, TTW, TTT , GGTs} ->
       {TTW, TTT, GGTs};
-    true ->
-      log("Received unknown message."),
+    Unknown ->
+      log(Number, "Received unknown message. ~p~n", [Unknown]),
       error
   end.
 
@@ -110,12 +109,11 @@ get_ggt_vals(Koordinator) ->
 %%   or: Number, error
 %% Returns: None
 %%----------------------------------------------------------------------
-spawn_ggts(_Number, error) ->
-  log("[END] - Unable to spawn ggt processes.");
-spawn_ggts(_Number, {_TTW, _TTT, 0}) ->
-  log("[END] - Started all GGT processes.");
+spawn_ggts(Number, error) ->
+  log(Number, "[END] - Unable to spawn ggt processes.~n");
+spawn_ggts(Number, {_TTW, _TTT, 0}) ->
+  log(Number, "[END] - Started all GGT processes.~n");
 spawn_ggts(Number, {TTW, TTT, GGTs}) ->
-  log("Spawn new ggt with ttw=~p and ttt=~p", [TTW, TTT]),
   spawn_single_ggt(Number, GGTs, TTW, TTT),
   spawn_ggts(Number, {TTT, TTW, GGTs - 1}).
 
@@ -127,4 +125,14 @@ spawn_ggts(Number, {TTW, TTT, GGTs}) ->
 %%----------------------------------------------------------------------
 spawn_single_ggt(StarterNumber, GgtNumber, TTW, TTT) ->
   Nameserver = get_nameserver(),
-  spawn(ggt, start, [StarterNumber, GgtNumber, TTW, TTT, Nameserver, get_coordinator(Nameserver)]).
+  Coordinator = get_coordinator(Nameserver),
+  NewPID = spawn(ggt, start, [StarterNumber, GgtNumber, TTW, TTT, Nameserver, Coordinator]),
+  log(StarterNumber, "Started new ggt process with values (~s, ~p, ~p, ~p, ~p, ~p) with PID ~p~n", [
+    StarterNumber,
+    GgtNumber,
+    TTW,
+    TTT,
+    Nameserver,
+    Coordinator,
+    NewPID
+  ]).
