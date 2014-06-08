@@ -72,12 +72,13 @@ get_nameserver() ->
 get_coordinator(Nameserver) ->
   {ok, Config} = file:consult("ggt.cfg"),
   Koordinatorname = get_config_value(coordinator, Config),
-  Nameserver ! {?LOOKUP, Koordinatorname},
+  Nameserver ! {self(), {?LOOKUP, Koordinatorname}},
   receive
     {?LOOKUP_RES, ?UNDEFINED} ->
       error;
-    {?LOOKUP_RES, ServiceAtNode} ->
-      global:whereis_name(ServiceAtNode)
+    {?LOOKUP_RES, {Service, Node}} ->
+      net_adm:ping(Node),
+      global:whereis_name(Service)
   end.
 
 %%----------------------------------------------------------------------
