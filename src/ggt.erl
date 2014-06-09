@@ -104,7 +104,8 @@ process(name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi) -
           if
             TSD >= TTT div 2 ->
               log(name, "~sinform neightbour about vote:~s", [?P, now()]),
-              LeftN ! {vote, Initiator};
+              LeftN ! {vote, Initiator},
+              process(name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi);
 
           true ->
             process(name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi)
