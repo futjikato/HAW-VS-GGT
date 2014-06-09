@@ -46,7 +46,7 @@ start(Number) ->
 log(Number, Msg) ->
   log(Number, Msg, []).
 log(Number, Msg, []) ->
-  Filename = io_lib:format("starter~s_ggt_~p.log", [Number, node()]),
+  Filename = io_lib:format("starter~s_ggt_~s.log", [Number, node()]),
   logging(Filename, Msg);
 log(Number, Msg, Params) ->
   log(Number, io_lib:format(Msg, Params), []).

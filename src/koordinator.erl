@@ -146,11 +146,11 @@ send_value(Name, Value) ->
 %%----------------------------------------------------------------------
 kill_ggts([]) ->
   noop;
+kill_ggts([Name]) ->
+  spawn(fun() -> send_kill(Name) end);
 kill_ggts([Name|Tail]) ->
   spawn(fun() -> send_kill(Name) end),
-  kill_ggts(Tail);
-kill_ggts([Name]) ->
-  spawn(fun() -> send_kill(Name) end).
+  kill_ggts(Tail).
 
 send_kill(Name) ->
   Nameserver = get_nameserver(),
@@ -217,7 +217,7 @@ get_registertime() ->
   {ok, Config} = file:consult("koordinator.cfg"),
   {ok, Sec} = get_config_value(registertime, Config),
   get_as_ms(string:to_integer(Sec)).
-get_as_ms({error, Reason}) ->
+get_as_ms({error, _Reason}) ->
   %% fallback to default time
   20000;
 get_as_ms({Int, _Rest}) ->
