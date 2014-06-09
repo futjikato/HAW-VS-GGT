@@ -19,16 +19,151 @@
 
 start() ->
   bind_at_nameserver(),
-  reset().
+  spawn(fun() -> workloop(register, [], 0) end).
 
-init(skip) ->
-  done.
-init(GgtNameList) ->
-  ShuffledList = werkzeug:shuffle(GgtNameList),
-
-reset() ->
+workloop(register, GgtNameList, ToggleFlag) ->
   timer:send_after(get_registertime(), rt_over),
-  GgtNameList = register([]).
+  receive
+    {get_ggt_vals,PID} ->
+      PID ! {ggt_vals, get_ttw(), get_ttt(), get_ggts()},
+      workloop(register, GgtNameList, ToggleFlag);
+    {check_in, GgtName} ->
+      workloop(register, [GgtName|GgtNameList], ToggleFlag);
+    {rt_over} ->
+      log("Register phase over."),
+      workloop(step, GgtNameList, ToggleFlag);
+    reset ->
+      workloop(register, [], ToggleFlag);
+    step ->
+      workloop(step, GgtNameList, ToggleFlag);
+    kill ->
+      kill_ggts(GgtNameList),
+      log("kill command received.");
+    toggle ->
+      workloop(register, GgtNameList, switch_toggle(ToggleFlag))
+  end;
+workloop(step, GgtNameList, ToggleFlag) ->
+  ShuffledList = werkzeug:shuffle(GgtNameList),
+  receive
+    {calc,WggT} ->
+      workloop(ready, GgtNameList, WggT, ToggleFlag, -1);
+    reset ->
+      workloop(register, [], ToggleFlag);
+    step ->
+      workloop(step, ShuffledList, ToggleFlag);
+    kill ->
+      kill_ggts(ShuffledList),
+      log("kill command received.");
+    toggle ->
+      workloop(step, ShuffledList, switch_toggle(ToggleFlag))
+  end.
+workloop(ready, GgtNameList, WggT, ToggleFlag, CurrentMi) ->
+  StartValues = werkzeug:bestimme_mis(WggT, length(GgtNameList)),
+  send(GgtNameList, StartValues, 0, max(2, round(length(GgtNameList) / 100 * 15))),
+  receive
+    {brief_mi, {GgtName, GgTMi, GgTZeit}} ->
+      log("Received brief_mi with value ~p from ~s at ~s~n", [GgTMi, GgtName, GgTZeit]),
+      workloop(ready, GgtNameList, WggT, ToggleFlag, min(GgTMi, CurrentMi));
+    {brief_term, {GgtName, GgTMi, GgTZeit}, FromPID} ->
+      NewCurrentMi = received_brief_term(GgtName, GgTMi, CurrentMi, GgTZeit, FromPID, ToggleFlag),
+      workloop(ready, GgtNameList, WggT, ToggleFlag, NewCurrentMi);
+    reset ->
+      workloop(register, [], ToggleFlag);
+    step ->
+      workloop(step, GgtNameList, ToggleFlag);
+    kill ->
+      kill_ggts(GgtNameList),
+      log("kill command received.");
+    toggle ->
+      workloop(ready, GgtNameList, WggT, switch_toggle(ToggleFlag), CurrentMi)
+  end.
+
+send([], _StartValues, _Counter, _SendAmount) ->
+  log("Send value to all ggt processes"); %% only possible if <= 2 ggt processes where registered
+send(_GgtNameList, [], _Counter, _SendAmount) ->
+  log("[SEVERE] - Send all starter values"); %% should never ever occure
+send([Name|NameTail], [Value|ValueTail], Counter, SendAmount) when SendAmount < Counter ->
+  spawn(fun() -> send_pmi(Name, Value) end),
+  send(NameTail, ValueTail, Counter + 1, SendAmount);
+send([Name|Tail], [Value], Counter, SendAmount) when SendAmount < Counter ->
+  spawn(fun() -> send_pmi(Name, Value) end),
+  send(Tail, [], Counter + 1, SendAmount);
+send([Name], [Value|Tail], Counter, SendAmount) when SendAmount < Counter ->
+  spawn(fun() -> send_pmi(Name, Value) end),
+  send([], Tail, Counter + 1, SendAmount);
+send([Name], [Value], Counter, SendAmount) when SendAmount < Counter ->
+  spawn(fun() -> send_pmi(Name, Value) end),
+  send([], [], Counter + 1, SendAmount);
+send(_GgtNameList, _StartValues, _Counter, SendAmount)  ->
+  log("Send ~p values to ggt processes. Done sending.~n", [SendAmount]),
+  noop.
+
+send_pmi(Name, Value) ->
+  Nameserver = get_nameserver(),
+  Nameserver ! {self(), {?LOOKUP, Name}},
+  receive
+    {?LOOKUP_RES, ?UNDEFINED} ->
+      log("Unable to send pmi to client. Nameserver does not know ~p~n", [Name]);
+    {?LOOKUP_RES, ServiceAtNode} ->
+      net_adm:ping(ServiceAtNode),
+      GgtPID = global:whereis_name(Name),
+      GgtPID ! {set_pmi, Value},
+      log("Send value ~p to ~s~n", [Value, Name])
+  end.
+
+
+received_brief_term(GgtName, GgTMi, CurrentMi, GgTZeit, _FromPID, _ToggleFlag) when GgTMi < CurrentMi ->
+  log("Received new mi ~p from ~s at ~s~n", [GgTMi, GgtName, GgTZeit]),
+  GgTMi;
+received_brief_term(GgtName, GgTMi, CurrentMi, GgTZeit, _FromPID, _ToggleFlag) when GgTMi == CurrentMi ->
+  log("Received same mi ~p from ~s at ~s~n", [GgTMi, GgtName, GgTZeit]),
+  CurrentMi;
+received_brief_term(GgtName, GgTMi, CurrentMi, GgTZeit, _FromPID, ToggleFlag) when ToggleFlag == 1 , GgTMi > CurrentMi ->
+  log("Received to hight mi ~p from ~s at ~s with toggle flag set to notification.", [GgTMi, GgtName, GgTZeit]),
+  spawn(fun() -> send_value(GgtName, CurrentMi) end),
+  CurrentMi;
+received_brief_term(GgtName, GgTMi, CurrentMi, GgTZeit, _FromPID, _ToggleFlag) when GgTMi > CurrentMi ->
+  log("Received to hight mi ~p from ~s at ~s with toggle flag set to ignore.", [GgTMi, GgtName, GgTZeit]),
+  CurrentMi.
+
+send_value(Name, Value) ->
+  Nameserver = get_nameserver(),
+  Nameserver ! {self(), {?LOOKUP, Name}},
+  receive
+    {?LOOKUP_RES, ?UNDEFINED} ->
+      log("Unable to send new mi value to client. Nameserver does not know ~p~n", [Name]);
+    {?LOOKUP_RES, ServiceAtNode} ->
+      net_adm:ping(ServiceAtNode),
+      GgtPID = global:whereis_name(Name),
+      GgtPID ! {send, Value},
+      log("Send value ~p to ~s~n", [Value, Name])
+  end.
+
+
+%%----------------------------------------------------------------------
+%% Function: kill_ggts/1
+%% Purpose: Send a kill command to all known ggt processes
+%%----------------------------------------------------------------------
+kill_ggts([]) ->
+  noop;
+kill_ggts([Name|Tail]) ->
+  spawn(fun() -> send_kill(Name) end),
+  kill_ggts(Tail);
+kill_ggts([Name]) ->
+  spawn(fun() -> send_kill(Name) end).
+
+send_kill(Name) ->
+  Nameserver = get_nameserver(),
+  Nameserver ! {self(), {?LOOKUP, Name}},
+  receive
+    {?LOOKUP_RES, ?UNDEFINED} ->
+      log("Unable to send kill command to client. Nameserver does not know ~p~n", [Name]);
+    {?LOOKUP_RES, ServiceAtNode} ->
+      net_adm:ping(ServiceAtNode),
+      GgtPID = global:whereis_name(Name),
+      GgtPID ! {kill},
+      log("Send kill to ~s~n", [Name])
+  end.
 
 %%----------------------------------------------------------------------
 %% Function: bind_at_nameserver/0
@@ -44,27 +179,6 @@ bind_at_nameserver() ->
     Message ->
       log("Unknown Message received: ~p~n", [Message]),
       ?NOK
-  end.
-
-%%----------------------------------------------------------------------
-%% Function: get_coordinator_name/0
-%% Purpose: Get the name to register the coordinator with at the nameserver
-%% Args: None
-%% Returns: String
-%%----------------------------------------------------------------------
-register(GgtNameList) ->
-  receive
-    {get_ggt_vals,PID} ->
-      PID ! {ggt_vals, get_ttw(), get_ttt(), get_ggts()},
-      register(GgtNameList);
-    {check_in, GgtName} ->
-      register([GgtName|GgtNameList]);
-    {rt_over} ->
-      log("Register phase over."),
-      GgtNameList;
-    {reset} ->
-      reset(),
-      skip
   end.
 
 %%----------------------------------------------------------------------
@@ -127,3 +241,14 @@ get_ggts() ->
   {ok, Config} = file:consult("koordinator.cfg"),
   {ok, Amount} = get_config_value(ggtprostarter, Config),
   Amount.
+
+%%----------------------------------------------------------------------
+%% Function: switch_toggle/1
+%% Purpose: toggle toggle flag
+%% Args: 1
+%%   or: 0
+%% Returns: 0
+%%      or: 1
+%%----------------------------------------------------------------------
+switch_toggle(0) -> 1;
+switch_toggle(1) -> 0.
