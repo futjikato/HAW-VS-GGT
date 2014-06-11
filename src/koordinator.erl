@@ -22,15 +22,17 @@ start() ->
   spawn(fun() -> workloop(register, [], 0) end).
 
 workloop(register, GgtNameList, ToggleFlag) ->
-  timer:send_after(get_registertime(), rt_over),
+  log("Registertime ~pms~n", [get_registertime()]),
+  timer:send_after(get_registertime(), self(), rt_over),
   receive
     {get_ggt_vals,PID} ->
+      log("Send ggt vals to ~p~n", [PID]),
       PID ! {ggt_vals, get_ttw(), get_ttt(), get_ggts()},
       workloop(register, GgtNameList, ToggleFlag);
     {check_in, GgtName} ->
       workloop(register, [GgtName|GgtNameList], ToggleFlag);
-    {rt_over} ->
-      log("Register phase over."),
+    rt_over ->
+      log("Register phase over.~n"),
       workloop(step, GgtNameList, ToggleFlag);
     reset ->
       workloop(register, [], ToggleFlag);
@@ -38,12 +40,18 @@ workloop(register, GgtNameList, ToggleFlag) ->
       workloop(step, GgtNameList, ToggleFlag);
     kill ->
       kill_ggts(GgtNameList),
-      log("kill command received.");
+      log("kill command received.~n");
     toggle ->
-      workloop(register, GgtNameList, switch_toggle(ToggleFlag))
+      workloop(register, GgtNameList, switch_toggle(ToggleFlag));
+    Unknown ->
+      log("Received unknown message: ~p~n", [Unknown]),
+      workloop(register, GgtNameList, ToggleFlag)
   end;
 workloop(step, GgtNameList, ToggleFlag) ->
   ShuffledList = werkzeug:shuffle(GgtNameList),
+  LastElem = array:get(erlang:length(ShuffledList), ShuffledList),
+  [FirstElem|Tail] = ShuffledList,
+  send_ring(none, FirstElem, FirstElem, LastElem, Tail),
   receive
     {calc,WggT} ->
       workloop(ready, GgtNameList, WggT, ToggleFlag, -1);
@@ -55,7 +63,10 @@ workloop(step, GgtNameList, ToggleFlag) ->
       kill_ggts(ShuffledList),
       log("kill command received.");
     toggle ->
-      workloop(step, ShuffledList, switch_toggle(ToggleFlag))
+      workloop(step, ShuffledList, switch_toggle(ToggleFlag));
+    Unknown ->
+      log("Received unknown message: ~p~n", [Unknown]),
+      workloop(register, GgtNameList, ToggleFlag)
   end.
 workloop(ready, GgtNameList, WggT, ToggleFlag, CurrentMi) ->
   StartValues = werkzeug:bestimme_mis(WggT, length(GgtNameList)),
@@ -75,7 +86,10 @@ workloop(ready, GgtNameList, WggT, ToggleFlag, CurrentMi) ->
       kill_ggts(GgtNameList),
       log("kill command received.");
     toggle ->
-      workloop(ready, GgtNameList, WggT, switch_toggle(ToggleFlag), CurrentMi)
+      workloop(ready, GgtNameList, WggT, switch_toggle(ToggleFlag), CurrentMi);
+    Unknown ->
+      log("Received unknown message: ~p~n", [Unknown]),
+      workloop(register, GgtNameList, ToggleFlag)
   end.
 
 send([], _StartValues, _Counter, _SendAmount) ->
@@ -171,8 +185,10 @@ send_kill(Name) ->
 %% Returns: None
 %%----------------------------------------------------------------------
 bind_at_nameserver() ->
+  ResPID = global:register_name(koordinator, self()),
+  log("Register as PID ~p~n", [ResPID]),
   Nameserver = get_nameserver(),
-  Nameserver ! {self(), {?REBIND, "koordinator", node()}},
+  Nameserver ! {self(), {?REBIND, koordinator, node()}},
   receive
     {?REBIND_RES, ?OK} ->
       log("Bind ok"),
@@ -222,7 +238,7 @@ get_as_ms({error, _Reason}) ->
   %% fallback to default time
   20000;
 get_as_ms({Int, _Rest}) ->
-  Int.
+  Int * 1000.
 
 %%----------------------------------------------------------------------
 %% Function: get_ttw/0 get_ttt/0 get_ggts/0
@@ -253,3 +269,26 @@ get_ggts() ->
 %%----------------------------------------------------------------------
 switch_toggle(0) -> 1;
 switch_toggle(1) -> 0.
+
+send_ring(none, Current, First, LastElem, [Head|Tail]) ->
+  spawn(fun() -> send_nei(Current, LastElem, Head) end),
+  send_ring(Current, Head, First, LastElem, Tail);
+send_ring(Last, Current, First, LastElem, [Head|Tail]) ->
+  spawn(fun() -> send_nei(Current, Last, Head) end),
+  send_ring(Current, Head, First, LastElem, Tail);
+send_ring(Last, Current, First, LastElem, [_AgainLast]) ->
+  spawn(fun() -> send_nei(Current, Last, LastElem) end),
+  spawn(fun() -> send_nei(LastElem, Current, First) end).
+
+send_nei(Receiver, LeftN, RighN) ->
+  Nameserver = get_nameserver(),
+  Nameserver ! {self(), {?LOOKUP, Receiver}},
+  receive
+    {?LOOKUP_RES, ?UNDEFINED} ->
+      log("Unable to send kill command to client. Nameserver does not know ~p~n", [Name]);
+    {?LOOKUP_RES, ServiceAtNode} ->
+      net_adm:ping(ServiceAtNode),
+      GgtPID = global:whereis_name(Receiver),
+      GgtPID ! {set_neighbours, LeftN, RighN},
+      log("Send neighbours (~p / ~p) to ~s~n", [LeftN, RighN, Receiver])
+  end.
