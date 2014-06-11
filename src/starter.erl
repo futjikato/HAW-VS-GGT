@@ -31,7 +31,7 @@
 %%----------------------------------------------------------------------
 start(Number) ->
   Nameserver = get_nameserver(),
-  Koordinator = get_coordinator(Nameserver),
+  Koordinator = get_coordinator(Number, Nameserver),
   Config = get_ggt_vals(Number, Koordinator),
   spawn_ggts(Number, Config),
   log(Number, "Done~n").
@@ -46,7 +46,7 @@ start(Number) ->
 log(Number, Msg) ->
   log(Number, Msg, []).
 log(Number, Msg, []) ->
-  Filename = io_lib:format("starter~s_ggt_~p.log", [Number, node()]),
+  Filename = io_lib:format("starter~p_ggt_~p.log", [Number, node()]),
   logging(Filename, Msg);
 log(Number, Msg, Params) ->
   log(Number, io_lib:format(Msg, Params), []).
@@ -63,15 +63,15 @@ get_nameserver() ->
   global:whereis_name(Nameservername).
 
 %%----------------------------------------------------------------------
-%% Function: get_coordinator/1
+%% Function: get_coordinator/2
 %% Purpose: Get the PID of the coordinator by asking the nameserver
 %% Args: PID of the nameserver
 %% Returns: PID of coordinator
 %%      or: error
 %%----------------------------------------------------------------------
-get_coordinator(Nameserver) ->
+get_coordinator(_Number, Nameserver) ->
   {ok, Config} = file:consult("ggt.cfg"),
-  Koordinatorname = get_config_value(coordinator, Config),
+  {ok, Koordinatorname} = get_config_value(coordinator, Config),
   Nameserver ! {self(), {?LOOKUP, Koordinatorname}},
   receive
     {?LOOKUP_RES, ?UNDEFINED} ->
@@ -126,7 +126,7 @@ spawn_ggts(Number, {TTW, TTT, GGTs}) ->
 %%----------------------------------------------------------------------
 spawn_single_ggt(StarterNumber, GgtNumber, TTW, TTT) ->
   Nameserver = get_nameserver(),
-  Coordinator = get_coordinator(Nameserver),
+  Coordinator = get_coordinator(StarterNumber, Nameserver),
   NewPID = spawn(ggt, start, [StarterNumber, GgtNumber, TTW, TTT, Nameserver, Coordinator]),
   log(StarterNumber, "Started new ggt process with values (~s, ~p, ~p, ~p, ~p, ~p) with PID ~p~n", [
     StarterNumber,

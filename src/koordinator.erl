@@ -175,6 +175,7 @@ bind_at_nameserver() ->
   Nameserver ! {self(), {?REBIND, "koordinator", node()}},
   receive
     {?REBIND_RES, ?OK} ->
+      log("Bind ok"),
       ?OK;
     Message ->
       log("Unknown Message received: ~p~n", [Message]),
