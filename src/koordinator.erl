@@ -71,7 +71,8 @@ workloop(step, GgtNameList, ToggleFlag) ->
 workloop(ready, GgtNameList, WggT, ToggleFlag, CurrentMi) ->
   StartValues = werkzeug:bestimme_mis(WggT, length(GgtNameList)),
   send_mi(GgtNameList, StartValues, 0, length(GgtNameList)),
-  send_y(GgtNameList, StartValues, 0, max(2, round(length(GgtNameList) / 100 * 15))),
+  SendValues = werkzeug:bestimme_mis(WggT, length(GgtNameList)),
+  send_y(GgtNameList, SendValues, 0, max(2, round(length(GgtNameList) / 100 * 15))),
   receive
     {brief_mi, {GgtName, GgTMi, GgTZeit}} ->
       log("Received brief_mi with value ~p from ~s at ~s~n", [GgTMi, GgtName, GgTZeit]),
@@ -336,3 +337,53 @@ get_last([Head]) ->
   Head;
 get_last([_Head|Tail]) ->
   get_last(Tail).
+
+ask_ggt_tell_mi([]) ->
+  log("No ggt´s to ask");
+ask_ggt_tell_mi([Name]) ->
+  send_tell_mi(Name);
+ask_ggt_tell_mi([Name|Tail]) ->
+  send_tell_mit(Name),
+  ask_ggt_tell_mi(Tail).
+
+ask_ggt_whats_on([]) ->
+  log("No ggt´s to ask");
+ask_ggt_whats_on([Name]) ->
+  send_whats_on(Name);
+ask_ggt_whats_on([Name|Tail]) ->
+  send_whats_on(Name),
+  ask_ggt_whats_on(Tail).
+
+send_whats_on(Name) ->
+  Nameserver = get_nameserver(),
+  Nameserver ! {self(), {?LOOKUP, Name}},
+  receive
+    {?LOOKUP_RES, ?UNDEFINED} ->
+      log("Unable to send whats_on to client. Nameserver does not know ~p~n", [Name]);
+    {?LOOKUP_RES, ServiceAtNode} ->
+      ServiceAtNode ! {?WHATSON, self()},
+      log("Send whats_on to ~s~n", [Name]),
+      receive
+        {?WHATSON_RES, Status} ->
+          log("Received ~s from ~s~n", [Status, Name]);
+        Unknown ->
+          log("Received unknown response for whats_on from ~s : ~s~n", [Name, Unknown])
+      end
+  end.
+
+send_tell_mit(Name) ->
+  Nameserver = get_nameserver(),
+  Nameserver ! {self(), {?LOOKUP, Name}},
+  receive
+    {?LOOKUP_RES, ?UNDEFINED} ->
+      log("Unable to send tell_mi to client. Nameserver does not know ~p~n", [Name]);
+    {?LOOKUP_RES, ServiceAtNode} ->
+      ServiceAtNode ! {?TELLMI, self()},
+      log("Send tell_mi to ~s~n", [Name]),
+      receive
+        {?TELLMI_RES, Mi} ->
+          log("Received Mi ~p from ~s~n", [Mi, Name]);
+        Unknown ->
+          log("Received unknown response for tell_mi from ~s : ~s~n", [Name, Unknown])
+      end
+  end.
