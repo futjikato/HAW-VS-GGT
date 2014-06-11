@@ -273,12 +273,12 @@ switch_toggle(1) -> 0.
 send_ring(none, Current, First, LastElem, [Head|Tail]) ->
   spawn(fun() -> send_nei(Current, LastElem, Head) end),
   send_ring(Current, Head, First, LastElem, Tail);
-send_ring(Last, Current, First, LastElem, [Head|Tail]) ->
-  spawn(fun() -> send_nei(Current, Last, Head) end),
-  send_ring(Current, Head, First, LastElem, Tail);
 send_ring(Last, Current, First, LastElem, [_AgainLast]) ->
   spawn(fun() -> send_nei(Current, Last, LastElem) end),
-  spawn(fun() -> send_nei(LastElem, Current, First) end).
+  spawn(fun() -> send_nei(LastElem, Current, First) end);
+send_ring(Last, Current, First, LastElem, [Head|Tail]) ->
+  spawn(fun() -> send_nei(Current, Last, Head) end),
+  send_ring(Current, Head, First, LastElem, Tail).
 
 send_nei(Receiver, LeftN, RighN) ->
   Nameserver = get_nameserver(),
