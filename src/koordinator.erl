@@ -285,7 +285,7 @@ send_nei(Receiver, LeftN, RighN) ->
   Nameserver ! {self(), {?LOOKUP, Receiver}},
   receive
     {?LOOKUP_RES, ?UNDEFINED} ->
-      log("Unable to send kill command to client. Nameserver does not know ~p~n", [Name]);
+      log("Unable to send kill command to client. Nameserver does not know ~p~n", [Receiver]);
     {?LOOKUP_RES, ServiceAtNode} ->
       net_adm:ping(ServiceAtNode),
       GgtPID = global:whereis_name(Receiver),
