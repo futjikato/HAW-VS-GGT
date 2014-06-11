@@ -49,7 +49,7 @@ workloop(register, GgtNameList, ToggleFlag) ->
   end;
 workloop(step, GgtNameList, ToggleFlag) ->
   ShuffledList = werkzeug:shuffle(GgtNameList),
-  LastElem = array:get(erlang:length(ShuffledList), ShuffledList),
+  LastElem = get_last(ShuffledList),
   [FirstElem|Tail] = ShuffledList,
   send_ring(none, FirstElem, FirstElem, LastElem, Tail),
   receive
@@ -185,8 +185,8 @@ send_kill(Name) ->
 %% Returns: None
 %%----------------------------------------------------------------------
 bind_at_nameserver() ->
-  ResPID = global:register_name(koordinator, self()),
-  log("Register as PID ~p~n", [ResPID]),
+  global:register_name(koordinator, self()),
+  register(koordinator, self()),
   Nameserver = get_nameserver(),
   Nameserver ! {self(), {?REBIND, koordinator, node()}},
   receive
@@ -292,3 +292,10 @@ send_nei(Receiver, LeftN, RighN) ->
       GgtPID ! {set_neighbours, LeftN, RighN},
       log("Send neighbours (~p / ~p) to ~s~n", [LeftN, RighN, Receiver])
   end.
+
+get_last([]) ->
+ log("Last of emty array is not good");
+get_last([Head]) ->
+  Head;
+get_last([_Head|Tail]) ->
+  get_last(Tail).
