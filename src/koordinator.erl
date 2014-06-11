@@ -343,7 +343,7 @@ ask_ggt_tell_mi([]) ->
 ask_ggt_tell_mi([Name]) ->
   send_tell_mi(Name);
 ask_ggt_tell_mi([Name|Tail]) ->
-  send_tell_mit(Name),
+  send_tell_mi(Name),
   ask_ggt_tell_mi(Tail).
 
 ask_ggt_whats_on([]) ->
@@ -371,7 +371,7 @@ send_whats_on(Name) ->
       end
   end.
 
-send_tell_mit(Name) ->
+send_tell_mi(Name) ->
   Nameserver = get_nameserver(),
   Nameserver ! {self(), {?LOOKUP, Name}},
   receive
