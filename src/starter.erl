@@ -76,9 +76,8 @@ get_coordinator(_Number, Nameserver) ->
   receive
     {?LOOKUP_RES, ?UNDEFINED} ->
       error;
-    {?LOOKUP_RES, {Service, Node}} ->
-      net_adm:ping(Node),
-      global:whereis_name(Service)
+    {?LOOKUP_RES, ServiceAtNode} ->
+      ServiceAtNode
   end.
 
 %%----------------------------------------------------------------------
@@ -128,7 +127,7 @@ spawn_single_ggt(StarterNumber, GgtNumber, TTW, TTT) ->
   Nameserver = get_nameserver(),
   Coordinator = get_coordinator(StarterNumber, Nameserver),
   NewPID = spawn(ggt, start, [StarterNumber, GgtNumber, TTW, TTT, Nameserver, Coordinator]),
-  log(StarterNumber, "Started new ggt process with values (~s, ~p, ~p, ~p, ~p, ~p) with PID ~p~n", [
+  log(StarterNumber, "Started new ggt process with values (~p, ~p, ~p, ~p, ~p, ~p) with PID ~p~n", [
     StarterNumber,
     GgtNumber,
     TTW,
