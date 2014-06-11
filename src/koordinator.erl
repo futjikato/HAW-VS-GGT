@@ -19,7 +19,7 @@
 
 start() ->
   bind_at_nameserver(),
-  spawn(fun() -> workloop(register, [], 0) end).
+  workloop(register, [], 0).
 
 workloop(register, GgtNameList, ToggleFlag) ->
   log("Registertime ~pms~n", [get_registertime()]),
@@ -66,11 +66,12 @@ workloop(step, GgtNameList, ToggleFlag) ->
       workloop(step, ShuffledList, switch_toggle(ToggleFlag));
     Unknown ->
       log("Received unknown message: ~p~n", [Unknown]),
-      workloop(register, GgtNameList, ToggleFlag)
+      workloop(step, GgtNameList, ToggleFlag)
   end.
 workloop(ready, GgtNameList, WggT, ToggleFlag, CurrentMi) ->
   StartValues = werkzeug:bestimme_mis(WggT, length(GgtNameList)),
-  send(GgtNameList, StartValues, 0, max(2, round(length(GgtNameList) / 100 * 15))),
+  send_mi(GgtNameList, StartValues, 0, length(GgtNameList)),
+  send_y(GgtNameList, StartValues, 0, max(2, round(length(GgtNameList) / 100 * 15))),
   receive
     {brief_mi, {GgtName, GgTMi, GgTZeit}} ->
       log("Received brief_mi with value ~p from ~s at ~s~n", [GgTMi, GgtName, GgTZeit]),
@@ -83,8 +84,8 @@ workloop(ready, GgtNameList, WggT, ToggleFlag, CurrentMi) ->
     step ->
       workloop(step, GgtNameList, ToggleFlag);
     kill ->
-      kill_ggts(GgtNameList),
-      log("kill command received.");
+      log("kill command received."),
+      kill_ggts(GgtNameList);
     toggle ->
       workloop(ready, GgtNameList, WggT, switch_toggle(ToggleFlag), CurrentMi);
     Unknown ->
@@ -92,23 +93,23 @@ workloop(ready, GgtNameList, WggT, ToggleFlag, CurrentMi) ->
       workloop(register, GgtNameList, ToggleFlag)
   end.
 
-send([], _StartValues, _Counter, _SendAmount) ->
+send_mi([], _StartValues, _Counter, _SendAmount) ->
   log("Send value to all ggt processes"); %% only possible if <= 2 ggt processes where registered
-send(_GgtNameList, [], _Counter, _SendAmount) ->
+send_mi(_GgtNameList, [], _Counter, _SendAmount) ->
   log("[SEVERE] - Send all starter values"); %% should never ever occure
-send([Name|NameTail], [Value|ValueTail], Counter, SendAmount) when SendAmount < Counter ->
+send_mi([Name|NameTail], [Value|ValueTail], Counter, SendAmount) when SendAmount < Counter ->
   spawn(fun() -> send_pmi(Name, Value) end),
-  send(NameTail, ValueTail, Counter + 1, SendAmount);
-send([Name|Tail], [Value], Counter, SendAmount) when SendAmount < Counter ->
+  send_mi(NameTail, ValueTail, Counter + 1, SendAmount);
+send_mi([Name|Tail], [Value], Counter, SendAmount) when SendAmount < Counter ->
   spawn(fun() -> send_pmi(Name, Value) end),
-  send(Tail, [], Counter + 1, SendAmount);
-send([Name], [Value|Tail], Counter, SendAmount) when SendAmount < Counter ->
+  send_mi(Tail, [], Counter + 1, SendAmount);
+send_mi([Name], [Value|Tail], Counter, SendAmount) when SendAmount < Counter ->
   spawn(fun() -> send_pmi(Name, Value) end),
-  send([], Tail, Counter + 1, SendAmount);
-send([Name], [Value], Counter, SendAmount) when SendAmount < Counter ->
+  send_mi([], Tail, Counter + 1, SendAmount);
+send_mi([Name], [Value], Counter, SendAmount) when SendAmount < Counter ->
   spawn(fun() -> send_pmi(Name, Value) end),
-  send([], [], Counter + 1, SendAmount);
-send(_GgtNameList, _StartValues, _Counter, SendAmount)  ->
+  send_mi([], [], Counter + 1, SendAmount);
+send_mi(_GgtNameList, _StartValues, _Counter, SendAmount)  ->
   log("Send ~p values to ggt processes. Done sending.~n", [SendAmount]),
   noop.
 
@@ -122,9 +123,41 @@ send_pmi(Name, Value) ->
       net_adm:ping(ServiceAtNode),
       GgtPID = global:whereis_name(Name),
       GgtPID ! {set_pmi, Value},
-      log("Send value ~p to ~s~n", [Value, Name])
+      log("Send pmi ~p to ~s~n", [Value, Name])
   end.
 
+send_y([], _StartValues, _Counter, _SendAmount) ->
+  log("Send value to all ggt processes"); %% only possible if <= 2 ggt processes where registered
+send_y(_GgtNameList, [], _Counter, _SendAmount) ->
+  log("[SEVERE] - Send all starter values"); %% should never ever occure
+send_y([Name|NameTail], [Value|ValueTail], Counter, SendAmount) when SendAmount < Counter ->
+  spawn(fun() -> send_sy(Name, Value) end),
+  send_y(NameTail, ValueTail, Counter + 1, SendAmount);
+send_y([Name|Tail], [Value], Counter, SendAmount) when SendAmount < Counter ->
+  spawn(fun() -> send_sy(Name, Value) end),
+  send_y(Tail, [], Counter + 1, SendAmount);
+send_y([Name], [Value|Tail], Counter, SendAmount) when SendAmount < Counter ->
+  spawn(fun() -> send_sy(Name, Value) end),
+  send_y([], Tail, Counter + 1, SendAmount);
+send_y([Name], [Value], Counter, SendAmount) when SendAmount < Counter ->
+  spawn(fun() -> send_sy(Name, Value) end),
+  send_y([], [], Counter + 1, SendAmount);
+send_y(_GgtNameList, _StartValues, _Counter, SendAmount)  ->
+  log("Send ~p values to ggt processes. Done sending.~n", [SendAmount]),
+  noop.
+
+send_sy(Name, Value) ->
+  Nameserver = get_nameserver(),
+  Nameserver ! {self(), {?LOOKUP, Name}},
+  receive
+    {?LOOKUP_RES, ?UNDEFINED} ->
+      log("Unable to send y to client. Nameserver does not know ~p~n", [Name]);
+    {?LOOKUP_RES, ServiceAtNode} ->
+      net_adm:ping(ServiceAtNode),
+      GgtPID = global:whereis_name(Name),
+      GgtPID ! {send, Value},
+      log("Send value ~p to ~s~n", [Value, Name])
+  end.
 
 received_brief_term(GgtName, GgTMi, CurrentMi, GgTZeit, _FromPID, _ToggleFlag) when GgTMi < CurrentMi ->
   log("Received new mi ~p from ~s at ~s~n", [GgTMi, GgtName, GgTZeit]),
@@ -159,7 +192,9 @@ send_value(Name, Value) ->
 %% Purpose: Send a kill command to all known ggt processes
 %%----------------------------------------------------------------------
 kill_ggts([]) ->
-  noop;
+  Nameserver = get_nameserver(),
+  Nameserver ! {self(), {?UNBIND, koordinator}},
+  global:unregister_name(koordinator);
 kill_ggts([Name]) ->
   spawn(fun() -> send_kill(Name) end);
 kill_ggts([Name|Tail]) ->
@@ -270,6 +305,8 @@ get_ggts() ->
 switch_toggle(0) -> 1;
 switch_toggle(1) -> 0.
 
+send_ring(none, _Current, _First, _LastElem, []) ->
+  log("state(init) Empty GGT process error ... ");
 send_ring(none, Current, First, LastElem, [Head|Tail]) ->
   spawn(fun() -> send_nei(Current, LastElem, Head) end),
   send_ring(Current, Head, First, LastElem, Tail);
@@ -285,7 +322,7 @@ send_nei(Receiver, LeftN, RighN) ->
   Nameserver ! {self(), {?LOOKUP, Receiver}},
   receive
     {?LOOKUP_RES, ?UNDEFINED} ->
-      log("Unable to send kill command to client. Nameserver does not know ~p~n", [Receiver]);
+      log("state(init) Unable to send set_neighbours to client. Nameserver does not know ~p~n", [Receiver]);
     {?LOOKUP_RES, ServiceAtNode} ->
       net_adm:ping(ServiceAtNode),
       GgtPID = global:whereis_name(Receiver),
