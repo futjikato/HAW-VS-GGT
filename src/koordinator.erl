@@ -185,11 +185,11 @@ received_brief_term(GgtName, GgTMi, CurrentMi, GgTZeit, _FromPID, _ToggleFlag) w
   log("Received same mi ~p from ~s at ~s~n", [GgTMi, GgtName, GgTZeit]),
   CurrentMi;
 received_brief_term(GgtName, GgTMi, CurrentMi, GgTZeit, _FromPID, ToggleFlag) when ToggleFlag == 1 , GgTMi > CurrentMi ->
-  log("Received to hight mi ~p from ~s at ~s with toggle flag set to notification.", [GgTMi, GgtName, GgTZeit]),
+  log("Received to hight mi ~p from ~s at ~s with toggle flag set to notification.~n", [GgTMi, GgtName, GgTZeit]),
   spawn(fun() -> send_value(GgtName, CurrentMi) end),
   CurrentMi;
 received_brief_term(GgtName, GgTMi, CurrentMi, GgTZeit, _FromPID, _ToggleFlag) when GgTMi > CurrentMi ->
-  log("Received to hight mi ~p from ~s at ~s with toggle flag set to ignore.", [GgTMi, GgtName, GgTZeit]),
+  log("Received to hight mi ~p from ~s at ~s with toggle flag set to ignore.~n", [GgTMi, GgtName, GgTZeit]),
   CurrentMi.
 
 send_value(Name, Value) ->

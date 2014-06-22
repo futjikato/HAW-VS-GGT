@@ -59,7 +59,8 @@ pre_process(Name, TS, TTW, TTT, Nameserver, Coordinator, LeftN, RightN, Status) 
     {set_pmi, MiNeu} ->
       log(Name, "~sreveived set_pmi ~p also reset the timer:~s", [?PP, MiNeu, werkzeug:timeMilliSecond()]),
       TSNew = now(),
-      Worker = spawn(fun() -> process_spawn(Name, TSNew, TTW, TTT, Nameserver, Coordinator, LeftN, RightN, MiNeu, "got a new Mi to work with", self()) end),
+      Dispatcher = self(),
+      Worker = spawn(fun() -> process_spawn(Name, TSNew, TTW, TTT, Nameserver, Coordinator, LeftN, RightN, MiNeu, "got a new Mi to work with", Dispatcher) end),
       dispatcher_loop(Name, MiNeu, Worker, Nameserver, "got a new Mi to work with");
 
 
@@ -112,16 +113,14 @@ process_spawn(Name, TS, TTW, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, St
   process(Name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, Status, Dispatcher).
 
 process(Name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, Status, Dispatcher) ->
-  %Dispatcher ! {new_status, Status},
+  Dispatcher ! {new_status, Status},
   receive
     {set_pmi, MiNeu} ->
-      Dispatcher ! {new_status, Status},
       TSNew = now(),
       NewTimer = werkzeug:reset_timer(Timer, TTT, start_vote),
       process(Name, TSNew, TTW, NewTimer, TTT, Nameserver, Coordinator, LeftN, RightN, MiNeu, Status, Dispatcher);
 
     {send,Y} ->
-      Dispatcher ! {new_status, Status},
       log(Name, "~sreceived a send y=~p:~s", [?P, Y, werkzeug:timeMilliSecond()]),
       if
         Y < Mi ->
@@ -143,11 +142,9 @@ process(Name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, S
       end;
 
     {start_vote} ->
-      Dispatcher ! {new_status, Status},
       self() ! start_vote;
 
     {vote,Initiator} ->
-      Dispatcher ! {new_status, Status},
       log(Name, "~sreceived a vote:~s", [?P, werkzeug:timeMilliSecond()]),
       if
         Initiator =:= Name ->
@@ -170,7 +167,6 @@ process(Name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, S
       end;
 
     start_vote ->
-      Dispatcher ! {new_status, Status},
       TSD = timer:now_diff(now(), TS),
       if
         TSD >= TTT ->
