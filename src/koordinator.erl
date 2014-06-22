@@ -107,13 +107,13 @@ workloop(ready, GgtNameList, WggT, ToggleFlag, CurrentMi) ->
       workloop(ready, GgtNameList, WggT, switch_toggle(ToggleFlag), CurrentMi);
     prompt ->
       ask_ggt_tell_mi(GgtNameList),
-      workloop(ready, GgtNameList, ToggleFlag);
+      workloop(ready, GgtNameList, WggT, ToggleFlag, CurrentMi);
     whats_on ->
       ask_ggt_whats_on(GgtNameList),
-      workloop(ready, GgtNameList, ToggleFlag);
+      workloop(ready, GgtNameList, WggT, ToggleFlag, CurrentMi);
     Unknown ->
       log("Received unknown message: ~p~n", [Unknown]),
-      workloop(ready, GgtNameList, ToggleFlag)
+      workloop(ready, GgtNameList, WggT, ToggleFlag, CurrentMi)
   end.
 
 send_mi([], _StartValues, _Counter) ->

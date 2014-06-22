@@ -86,6 +86,12 @@ dispatcher_loop(Name, Mi, Worker, Nameserver, Status) ->
     {send,Y} ->
       Worker ! {send, Y};
 
+    {start_vote} ->
+      Worker ! {start_vote};
+
+    start_vote ->
+      Worker ! start_vote;
+
     {vote,Initiator} ->
       Worker ! {vote, Initiator};
 
@@ -102,17 +108,20 @@ dispatcher_loop(Name, Mi, Worker, Nameserver, Status) ->
   dispatcher_loop(Name, Mi, Worker, Nameserver, Status).
 
 process_spawn(Name, TS, TTW, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, Status, Dispatcher) ->
-  {ok, Timer} = timer:send_after(TTT * 1000, {start_vote}),
+  {ok, Timer} = timer:send_after(TTT * 1000, self(), start_vote),
   process(Name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, Status, Dispatcher).
 
 process(Name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, Status, Dispatcher) ->
-  Dispatcher ! {new_status, Status},
+  %Dispatcher ! {new_status, Status},
   receive
     {set_pmi, MiNeu} ->
+      Dispatcher ! {new_status, Status},
       TSNew = now(),
-      process(Name, TSNew, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, MiNeu, Status, Dispatcher);
+      NewTimer = werkzeug:reset_timer(Timer, TTT, start_vote),
+      process(Name, TSNew, TTW, NewTimer, TTT, Nameserver, Coordinator, LeftN, RightN, MiNeu, Status, Dispatcher);
 
     {send,Y} ->
+      Dispatcher ! {new_status, Status},
       log(Name, "~sreceived a send y=~p:~s", [?P, Y, werkzeug:timeMilliSecond()]),
       if
         Y < Mi ->
@@ -124,7 +133,7 @@ process(Name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, S
           Coordinator ! {brief_mi,{Name, MiNew, werkzeug:timeMilliSecond()}},
           Dispatcher ! {new_result, MiNew},
           log(Name, "~snotified neighbours and coordinator about new Mi = ~p:~s", [?P, MiNew, werkzeug:timeMilliSecond()]),
-          NewTimer = werkzeug:reset_timer(Timer, TTT * 1000, {start_vote}),
+          NewTimer = werkzeug:reset_timer(Timer, TTT, {start_vote}),
           TSN = now(),
           log(Name, "~stimer was reset:~s", [?P, werkzeug:timeMilliSecond()]),
           process(Name, TSN, TTW, NewTimer, TTT, Nameserver, Coordinator, LeftN, RightN, MiNew, lists:concat(["calculated new Mi = ", MiNew]), Dispatcher);
@@ -133,7 +142,12 @@ process(Name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, S
           process(Name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, "refused to work with new Y because it is smaller than Mi", Dispatcher)
       end;
 
+    {start_vote} ->
+      Dispatcher ! {new_status, Status},
+      self() ! start_vote;
+
     {vote,Initiator} ->
+      Dispatcher ! {new_status, Status},
       log(Name, "~sreceived a vote:~s", [?P, werkzeug:timeMilliSecond()]),
       if
         Initiator =:= Name ->
@@ -155,7 +169,8 @@ process(Name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, S
           end
       end;
 
-    {start_vote} ->
+    start_vote ->
+      Dispatcher ! {new_status, Status},
       TSD = timer:now_diff(now(), TS),
       if
         TSD >= TTT ->
@@ -164,6 +179,7 @@ process(Name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, S
           process(Name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, "started vote", Dispatcher);
 
       true ->
+        log(Name, "~sno vote:~s", [?P, werkzeug:timeMilliSecond()]),
         process(Name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, Status, Dispatcher)
       end
   end,
