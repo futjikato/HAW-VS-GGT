@@ -27,7 +27,7 @@
 
 
 start(StarterNumber, GgtNumber, TTW, TTT, Nameserver, Coordinator) ->
-  init(lists:concat(["39",GgtNumber,'_', StarterNumber]), TTW, TTT, Nameserver, Coordinator, "init").
+  init(lists:flatten(lists:concat(["39",GgtNumber,'_', StarterNumber])), TTW, TTT, Nameserver, Coordinator, "init").
 
 
 init(Name, TTW, TTT, Nameserver, Coordinator, Status) ->
@@ -42,7 +42,17 @@ init(Name, TTW, TTT, Nameserver, Coordinator, Status) ->
   receive
     {set_neighbours,LeftN,RightN} ->
       log(Name, "~sreceived neighbours and is changing to pre_process:~s", [?I, werkzeug:timeMilliSecond()]),
-      pre_process(Name, 0, TTW, TTT, Nameserver, Coordinator, LeftN, RightN, "received neighbous is now waiting for PMi");
+      Nameserver ! {self(), {lookup, LeftN}},
+      receive
+	{lookeup_res, LeftNode} ->
+	  LeftNo = LeftNode
+      end,
+      Nameserver ! {self(), {lookup, RightN}},
+      receive
+	{lookeup_res, RightNode} ->
+	  RightNo = RightNode
+      end,
+      pre_process(Name, 0, TTW, TTT, Nameserver, Coordinator, LeftNo, RightNo, "received neighbous is now waiting for PMi");
 
     {whats_on, From} ->
       From ! {i_am, Status},
@@ -61,7 +71,7 @@ pre_process(Name, TS, TTW, TTT, Nameserver, Coordinator, LeftN, RightN, Status) 
       TSNew = now(),
       Dispatcher = self(),
       Worker = spawn(fun() -> process_spawn(Name, TSNew, TTW, TTT, Nameserver, Coordinator, LeftN, RightN, MiNeu, "got a new Mi to work with", Dispatcher) end),
-      dispatcher_loop(Name, MiNeu, Worker, Nameserver, "got a new Mi to work with");
+      dispatcher_loop(Name, MiNeu, Worker, Nameserver, "This is not supposed to stay like this (Dispatcher default state)");
 
 
     {whats_on, From} ->
@@ -108,9 +118,10 @@ dispatcher_loop(Name, Mi, Worker, Nameserver, Status) ->
   end,
   dispatcher_loop(Name, Mi, Worker, Nameserver, Status).
 
-process_spawn(Name, TS, TTW, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, Status, Dispatcher) ->
+process_spawn(Name, _TS, TTW, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, Status, Dispatcher) ->
   {ok, Timer} = timer:send_after(TTT * 1000, self(), start_vote),
-  process(Name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, Status, Dispatcher).
+  TSN = now(),
+  process(Name, TSN, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, Status, Dispatcher).
 
 process(Name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, Status, Dispatcher) ->
   Dispatcher ! {new_status, Status},
@@ -126,7 +137,7 @@ process(Name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, S
         Y < Mi ->
           log(Name, "~scalculating new Mi:~s", [?P, werkzeug:timeMilliSecond()]),
           timer:sleep(TTW),
-          MiNew = (Mi-1) rem (Y+1),
+          MiNew = ((Mi-1) rem (Y)+1),
           LeftN ! {send, MiNew},
           RightN ! {send, MiNew},
           Coordinator ! {brief_mi,{Name, MiNew, werkzeug:timeMilliSecond()}},
@@ -138,7 +149,9 @@ process(Name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, S
           process(Name, TSN, TTW, NewTimer, TTT, Nameserver, Coordinator, LeftN, RightN, MiNew, lists:concat(["calculated new Mi = ", MiNew]), Dispatcher);
 
         true ->
-          process(Name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, "refused to work with new Y because it is smaller than Mi", Dispatcher)
+          NewTimer = werkzeug:reset_timer(Timer, TTT, {start_vote}),
+          TSN = now(),
+          process(Name, TSN, TTW, NewTimer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, "refused to work with new Y because it is smaller than Mi", Dispatcher)
       end;
 
     {start_vote} ->
@@ -148,7 +161,7 @@ process(Name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, S
       log(Name, "~sreceived a vote:~s", [?P, werkzeug:timeMilliSecond()]),
       if
         Initiator =:= Name ->
-          Coordinator !{brief_term, {Name, Mi, werkzeug:timeMilliSecond()}, self()},
+          Coordinator ! {brief_term, {list_to_atom(Name), Mi, werkzeug:timeMilliSecond()}, self()},
           log(Name, "~sinform coordinator about terminate:~s", [?P, werkzeug:timeMilliSecond()]),
           process(Name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, "informed coordinator about termination", Dispatcher);
 
@@ -158,7 +171,7 @@ process(Name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, S
             TSD >= TTT div 2 ->
               log(Name, "~sinform neightbour about vote:~s", [?P, werkzeug:timeMilliSecond()]),
               LeftN ! {vote, Initiator},
-              process(Name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, "voted for termination", Dispatcher);
+              process(Name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, "voting for termination", Dispatcher);
 
           true ->
 	    log(Name, "~sAbstimmung verworfen (letztes Event ist ~p ms her):~s", [?P, TSD, werkzeug:timeMilliSecond()]),
@@ -176,10 +189,10 @@ process(Name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, S
 
       true ->
         log(Name, "~sno vote:~s", [?P, werkzeug:timeMilliSecond()]),
-        process(Name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, Status, Dispatcher)
+        process(Name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, "no vote from this one", Dispatcher)
       end
   end,
-  process(Name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, Status, Dispatcher).
+  process(Name, TS, TTW, Timer, TTT, Nameserver, Coordinator, LeftN, RightN, Mi, "this should not happen", Dispatcher).
 
 die(Name, Nameserver) ->
   log(Name, "(dying)::unregistering ~s from ~p:~s", [Name, Nameserver, werkzeug:timeMilliSecond()]),
